@@ -1,47 +1,49 @@
-name: Check eInnsyn search
+name: Monitor eInnsyn
 
 on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  check:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests
 
-      - name: Run eInnsyn checker
+      - name: Run monitor
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
-        run: python monitor_einnsyn.py
+        run: |
+          python monitor_einnsyn.py > latest_result.json
 
-      - name: Commit updated JSON if changed
+      - name: Ensure JSON exists
+        run: |
+          if [ ! -f latest_result.json ]; then
+            echo "{}" > latest_result.json
+          fi
+
+      - name: Commit latest JSON
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          if ! git diff --quiet latest_result.json; then
-            git add latest_result.json
-            git commit -m "Update eInnsyn search snapshot"
-            git push
-          else
-            echo "No JSON change to commit."
-          fi
+          git add latest_result.json
+
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+
+          git commit -m "Update latest eInnsyn result"
+          git push
