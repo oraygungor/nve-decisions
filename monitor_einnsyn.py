@@ -1,208 +1,307 @@
 import os
 import json
 import smtplib
-import difflib
-from pathlib import Path
-from email.message import EmailMessage
-from typing import Any, Dict, List, Optional
-
+import hashlib
 import requests
+from datetime import datetime, timezone
+from email.message import EmailMessage
+from urllib.parse import urljoin, quote
 
 
-BASE_URL = "https://api.einnsyn.no"
+BASE = "https://api.einnsyn.no"
+
+# RME-M - Seksjon for marked og systemdrift
+RME_M_ADMIN_ENHET = "enh_01j73r5z2cf6xvstqj4d6fteq4"
+
+# Known Saksmappe ID for case 2023/9221.
+# This is NOT RME-M. This is the specific case folder.
+KNOWN_CASE_ID = "sm_01j76gtv03f0vb4e6n6gfg45k9"
+
+CASE_NUMBER = "2023/9221"
 
 SEARCH_TERMS = [
-    '"2023/09221"',
     '"2023/9221"',
-    "2023/09221",
+    '"2023/09221"',
     "2023/9221",
+    "2023/09221",
 ]
 
-ADMINISTRATIV_ENHET = "enh_01j73r5z2cf6xvstqj4d6fteq4"
-
-OUTPUT_DIR = Path("output")
-CURRENT_FILE = OUTPUT_DIR / "einnsyn_current.json"
-PREVIOUS_FILE = OUTPUT_DIR / "einnsyn_previous.json"
+LIMIT = 100
+STATE_FILE = "einnsyn_last.json"
 
 
-def get_json(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    response = requests.get(
-        url,
-        params=params,
-        timeout=30,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "einnsyn-monitor/1.0",
-        },
-    )
+def get_json(url, params=None):
+    response = requests.get(url, params=params, timeout=30)
     response.raise_for_status()
     return response.json()
 
 
-def normalize_item(item: Dict[str, Any]) -> Dict[str, Any]:
+def extract_items(data):
+    if isinstance(data, dict):
+        if isinstance(data.get("items"), list):
+            return data["items"]
+        if isinstance(data.get("results"), list):
+            return data["results"]
+        if isinstance(data.get("searchHits"), list):
+            return [x.get("source", x) for x in data["searchHits"]]
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def normalize_entity(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def make_web_link(entity, external_id):
+    if not external_id:
+        return None
+
+    if entity == "Saksmappe":
+        return "https://einnsyn.no/saksmappe?id=" + quote(external_id, safe="")
+
+    if entity == "Journalpost":
+        return "https://einnsyn.no/journalpost?id=" + quote(external_id, safe="")
+
+    return None
+
+
+def simplify_case(case):
+    entity = normalize_entity(case.get("entity") or case.get("type"))
+
     return {
-        "id": item.get("id"),
-        "entity": item.get("entity"),
-        "title": item.get("offentligTittel"),
-        "published": item.get("publisertDato"),
-        "updated": item.get("oppdatertDato"),
-        "journal_date": item.get("journaldato"),
-        "document_date": item.get("dokumentetsDato"),
-        "case_number": item.get("saksnummer"),
-        "journalpost_number": item.get("journalpostnummer"),
-        "journalpost_type": item.get("journalposttype"),
-        "saksmappe": item.get("saksmappe"),
-        "externalId": item.get("externalId"),
-        "api_link": build_api_link(item),
-        "web_link": build_web_link(item),
+        "id": case.get("id"),
+        "entity": entity,
+        "title": case.get("offentligTittel") or case.get("title"),
+        "case_number": case.get("saksnummer"),
+        "published": case.get("publisertDato"),
+        "updated": case.get("oppdatertDato"),
+        "administrativ_enhet": case.get("administrativEnhet"),
+        "administrativ_enhet_object": case.get("administrativEnhetObjekt"),
+        "externalId": case.get("externalId"),
+        "api_link": f"{BASE}/saksmappe/{case.get('id')}" if case.get("id") else None,
+        "web_link": make_web_link("Saksmappe", case.get("externalId")),
+        "raw": case,
     }
 
 
-def build_api_link(item: Dict[str, Any]) -> Optional[str]:
-    entity = item.get("entity")
-    item_id = item.get("id")
+def simplify_journalpost(jp):
+    entity = normalize_entity(jp.get("entity") or jp.get("type"))
 
-    if not entity or not item_id:
-        return None
-
-    if entity == "Journalpost":
-        return f"{BASE_URL}/journalpost/{item_id}"
-
-    if entity == "Saksmappe":
-        return f"{BASE_URL}/saksmappe/{item_id}"
-
-    return None
-
-
-def build_web_link(item: Dict[str, Any]) -> Optional[str]:
-    entity = item.get("entity")
-    external_id = item.get("externalId")
-
-    if not entity or not external_id:
-        return None
-
-    from urllib.parse import quote
-
-    encoded_external_id = quote(external_id, safe="")
-
-    if entity == "Journalpost":
-        return f"https://einnsyn.no/journalpost?id={encoded_external_id}"
-
-    if entity == "Saksmappe":
-        return f"https://einnsyn.no/saksmappe?id={encoded_external_id}"
-
-    return None
+    return {
+        "id": jp.get("id"),
+        "entity": entity,
+        "title": jp.get("offentligTittel") or jp.get("title"),
+        "published": jp.get("publisertDato"),
+        "updated": jp.get("oppdatertDato"),
+        "journal_date": jp.get("journaldato"),
+        "document_date": jp.get("dokumentetsDato"),
+        "journal_year": jp.get("journalaar"),
+        "journalpost_number": jp.get("journalpostnummer"),
+        "journalpost_type": jp.get("journalposttype"),
+        "saksmappe": jp.get("saksmappe"),
+        "externalId": jp.get("externalId"),
+        "api_link": f"{BASE}/journalpost/{jp.get('id')}" if jp.get("id") else None,
+        "web_link": make_web_link("Journalpost", jp.get("externalId")),
+        "raw": jp,
+    }
 
 
-def find_case() -> Dict[str, Any]:
-    for search_term in SEARCH_TERMS:
+def find_case_by_search():
+    for term in SEARCH_TERMS:
         params = {
-            "query": search_term,
-            "limit": 100,
+            "query": term,
+            "limit": LIMIT,
             "sortBy": "publisertDato",
             "sortOrder": "desc",
-            "administrativEnhet": ADMINISTRATIV_ENHET,
+            "administrativEnhet": RME_M_ADMIN_ENHET,
         }
 
-        data = get_json(f"{BASE_URL}/search", params=params)
+        data = get_json(f"{BASE}/search", params=params)
+        items = extract_items(data)
 
-        results = data.get("results", [])
-        for item in results:
-            if item.get("entity") == "Saksmappe":
-                case_number = item.get("saksnummer")
-                external_id = item.get("externalId", "")
+        for item in items:
+            entity = normalize_entity(item.get("entity") or item.get("type"))
+            case_number = item.get("saksnummer")
+            admin_enhet = item.get("administrativEnhetObjekt") or item.get("journalenhet")
 
-                if case_number == "2023/9221" or "Saksmappe--970205039--9221--2023" in external_id:
-                    return item
+            if (
+                entity == "Saksmappe"
+                and case_number == CASE_NUMBER
+                and admin_enhet == RME_M_ADMIN_ENHET
+            ):
+                return item
 
-    raise RuntimeError("Could not find the target Saksmappe for case 2023/9221.")
+    return None
 
 
-def fetch_case_journalposts(case_id: str) -> List[Dict[str, Any]]:
+def fetch_known_case():
+    case = get_json(f"{BASE}/saksmappe/{KNOWN_CASE_ID}")
+
+    case_number = case.get("saksnummer")
+    admin_enhet = case.get("administrativEnhetObjekt") or case.get("journalenhet")
+
+    if case_number != CASE_NUMBER:
+        raise RuntimeError(
+            f"Known case ID resolved, but case number was {case_number}, expected {CASE_NUMBER}."
+        )
+
+    if admin_enhet != RME_M_ADMIN_ENHET:
+        raise RuntimeError(
+            f"Known case ID resolved, but admin unit was {admin_enhet}, expected {RME_M_ADMIN_ENHET}."
+        )
+
+    return case
+
+
+def find_case():
+    case = find_case_by_search()
+
+    if case:
+        return case
+
+    return fetch_known_case()
+
+
+def fetch_case_journalposts(case_id):
+    all_items = []
+    next_url = f"{BASE}/saksmappe/{case_id}/journalpost"
     params = {
-        "limit": 100,
+        "limit": LIMIT,
         "sortBy": "publisertDato",
         "sortOrder": "desc",
     }
 
-    data = get_json(f"{BASE_URL}/saksmappe/{case_id}/journalpost", params=params)
+    while next_url:
+        data = get_json(next_url, params=params)
+        params = None
 
-    results = data.get("results", [])
+        items = extract_items(data)
+        all_items.extend(items)
 
-    return [normalize_item(item) for item in results]
+        next_url = data.get("next") if isinstance(data, dict) else None
+        if next_url and next_url.startswith("/"):
+            next_url = urljoin(BASE, next_url)
+
+    return all_items
 
 
-def build_result() -> Dict[str, Any]:
+def build_result():
     case = find_case()
     case_id = case["id"]
 
     journalposts = fetch_case_journalposts(case_id)
+    simplified_journalposts = [simplify_journalpost(jp) for jp in journalposts]
+
+    simplified_journalposts.sort(
+        key=lambda x: x.get("published") or "",
+        reverse=True,
+    )
 
     return {
         "monitor": {
-            "name": "eInnsyn NVE case monitor",
-            "search_terms": SEARCH_TERMS,
-            "administrativ_enhet": ADMINISTRATIV_ENHET,
-            "target_case_number": "2023/9221",
+            "name": "RME-M 2023/9221 eInnsyn monitor",
+            "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+            "case_number": CASE_NUMBER,
+            "case_id": case_id,
+            "rme_m_administrativ_enhet": RME_M_ADMIN_ENHET,
+            "filters_used": {
+                "query": CASE_NUMBER,
+                "administrativEnhet": RME_M_ADMIN_ENHET,
+            },
+            "fallback_case_id": KNOWN_CASE_ID,
         },
-        "case": normalize_item(case),
-        "total_journalposts": len(journalposts),
-        "journalposts": journalposts,
+        "case": simplify_case(case),
+        "total_journalposts": len(simplified_journalposts),
+        "journalposts": simplified_journalposts,
     }
 
 
-def load_json(path: Path) -> Optional[Dict[str, Any]]:
-    if not path.exists():
+def comparable_result(result):
+    clean = json.loads(json.dumps(result, ensure_ascii=False))
+
+    if "monitor" in clean:
+        clean["monitor"].pop("checked_at_utc", None)
+
+    return clean
+
+
+def stable_hash(data):
+    dumped = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
+
+
+def load_previous():
+    if not os.path.exists(STATE_FILE):
         return None
 
-    with path.open("r", encoding="utf-8") as f:
+    with open(STATE_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2, sort_keys=True)
-
-
-def json_for_compare(data: Dict[str, Any]) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
+def save_current(result):
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2, sort_keys=True)
+        f.write("\n")
 
 
-def create_diff(old: Dict[str, Any], new: Dict[str, Any]) -> str:
-    old_text = json_for_compare(old).splitlines()
-    new_text = json_for_compare(new).splitlines()
+def summarize_changes(previous, current):
+    previous_posts = {
+        jp.get("id"): jp
+        for jp in previous.get("journalposts", [])
+        if jp.get("id")
+    }
 
-    diff = difflib.unified_diff(
-        old_text,
-        new_text,
-        fromfile="previous",
-        tofile="current",
-        lineterm="",
-    )
+    current_posts = {
+        jp.get("id"): jp
+        for jp in current.get("journalposts", [])
+        if jp.get("id")
+    }
 
-    diff_text = "\n".join(diff)
+    added_ids = sorted(set(current_posts) - set(previous_posts))
+    removed_ids = sorted(set(previous_posts) - set(current_posts))
 
-    if len(diff_text) > 15000:
-        return diff_text[:15000] + "\n\n[Diff truncated]"
+    changed_ids = []
+    for jp_id in sorted(set(previous_posts) & set(current_posts)):
+        if stable_hash(previous_posts[jp_id]) != stable_hash(current_posts[jp_id]):
+            changed_ids.append(jp_id)
 
-    return diff_text
+    return {
+        "added_count": len(added_ids),
+        "removed_count": len(removed_ids),
+        "changed_count": len(changed_ids),
+        "added": [current_posts[jp_id] for jp_id in added_ids],
+        "removed": [previous_posts[jp_id] for jp_id in removed_ids],
+        "changed_ids": changed_ids,
+        "previous_total_journalposts": previous.get("total_journalposts"),
+        "current_total_journalposts": current.get("total_journalposts"),
+    }
 
 
-def send_email_alert(subject: str, body: str) -> None:
-    gmail_user = os.environ["GMAIL_USER"]
-    gmail_app_password = os.environ["GMAIL_APP_PASSWORD"].replace(" ", "")
-    alert_to_raw = os.environ["ALERT_TO"]
+def send_email(subject, body):
+    gmail_user = os.environ.get("GMAIL_USER")
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD")
+    alert_to = os.environ.get("ALERT_TO")
+
+    if not gmail_user:
+        raise RuntimeError("Missing environment variable: GMAIL_USER")
+
+    if not gmail_app_password:
+        raise RuntimeError("Missing environment variable: GMAIL_APP_PASSWORD")
+
+    if not alert_to:
+        raise RuntimeError("Missing environment variable: ALERT_TO")
 
     recipients = [
-        email.strip()
-        for email in alert_to_raw.split(",")
-        if email.strip()
+        x.strip()
+        for x in alert_to.replace(";", ",").split(",")
+        if x.strip()
     ]
 
     if not recipients:
-        raise RuntimeError("ALERT_TO is empty. Add at least one recipient email.")
+        raise RuntimeError("ALERT_TO does not contain any valid recipient.")
 
     msg = EmailMessage()
     msg["From"] = gmail_user
@@ -211,52 +310,72 @@ def send_email_alert(subject: str, body: str) -> None:
     msg.set_content(body)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(gmail_user, gmail_app_password)
+        smtp.login(gmail_user, gmail_app_password.replace(" ", ""))
         smtp.send_message(msg)
 
 
-def main() -> None:
+def main():
     current_result = build_result()
+    previous_result = load_previous()
 
-    previous_result = load_json(PREVIOUS_FILE)
+    if previous_result is None:
+        current_result["change_status"] = {
+            "changed": False,
+            "reason": "No previous JSON found. Baseline created only.",
+            "email_sent": False,
+        }
 
-    changed = previous_result is not None and previous_result != current_result
-    first_run = previous_result is None
+        save_current(current_result)
+        print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
 
-    output = {
-        "changed": changed,
-        "first_run": first_run,
-        "result": current_result,
-    }
+    previous_comparable = comparable_result(previous_result)
+    current_comparable = comparable_result(current_result)
 
-    save_json(CURRENT_FILE, output)
+    changed = stable_hash(previous_comparable) != stable_hash(current_comparable)
 
-    if first_run:
-        save_json(PREVIOUS_FILE, current_result)
+    if changed:
+        change_summary = summarize_changes(previous_result, current_result)
 
-    elif changed:
-        diff = create_diff(previous_result, current_result)
+        current_result["change_status"] = {
+            "changed": True,
+            "reason": "Current eInnsyn result differs from previous saved JSON.",
+            "email_sent": False,
+            "change_summary": change_summary,
+        }
 
-        subject = "eInnsyn search changed: NVE case 2023/9221"
+        email_body = (
+            "The monitored eInnsyn case has changed.\n\n"
+            f"Case: {CASE_NUMBER}\n"
+            f"Case ID: {current_result['monitor']['case_id']}\n"
+            f"Checked at UTC: {current_result['monitor']['checked_at_utc']}\n\n"
+            "Change summary:\n"
+            f"- Added journalposts: {change_summary['added_count']}\n"
+            f"- Removed journalposts: {change_summary['removed_count']}\n"
+            f"- Changed journalposts: {change_summary['changed_count']}\n"
+            f"- Previous total: {change_summary['previous_total_journalposts']}\n"
+            f"- Current total: {change_summary['current_total_journalposts']}\n\n"
+            "Current JSON:\n"
+            + json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True)
+        )
 
-        body = f"""The monitored eInnsyn search has changed.
+        send_email(
+            subject=f"eInnsyn changed: RME-M {CASE_NUMBER}",
+            body=email_body,
+        )
 
-Case: 2023/9221
-Organisation/Admin unit: Norwegian Water Resources and Energy Directorate / {ADMINISTRATIV_ENHET}
+        current_result["change_status"]["email_sent"] = True
 
-Summary:
-Previous journalposts: {previous_result.get("total_journalposts")}
-Current journalposts: {current_result.get("total_journalposts")}
+    else:
+        current_result["change_status"] = {
+            "changed": False,
+            "reason": "No content change compared with previous saved JSON.",
+            "email_sent": False,
+        }
 
-Diff:
-{diff}
-"""
+    save_current(current_result)
 
-        send_email_alert(subject, body)
-
-        save_json(PREVIOUS_FILE, current_result)
-
-    print(json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
