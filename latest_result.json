@@ -4,7 +4,7 @@
     "administrativ_enhet_objekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
     "api_link": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "entity": "Danske commodities has been added",
+    "entity": "Saksmappe",
     "externalId": "http://data.einnsyn.no/noark4/Saksmappe--970205039--9221--2023",
     "id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "published": "2023-06-20T22:57:40.6+02:00",
@@ -72,7 +72,7 @@
     },
     {
       "api_link": "https://api.einnsyn.no/journalpost/jp_01k4zvfzatfb9akbsyftm64fb2",
-      "document_date": "2024-09-01",
+      "document_date": "2025-09-01",
       "entity": "Journalpost",
       "externalId": "http://data.einnsyn.no/noark4/Journalpost--970205039--2023--9221--7--2025",
       "id": "jp_01k4zvfzatfb9akbsyftm64fb2",
@@ -312,22 +312,16 @@
     }
   ],
   "monitor": {
+    "api_urls": {
+      "case": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "journalposts": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9/journalpost?limit=100&sortBy=publisertDato&sortOrder=desc"
+    },
     "case_id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "checked_at_utc": "2026-05-06T19:05:39.884112+00:00",
-    "filters_not_used": [
-      "searchTerm",
-      "state",
-      "stat0",
-      "saved_search_id",
-      "journalenhet",
-      "CASE_TITLE"
-    ],
-    "filters_used": {
-      "known_case_id": "sm_01j76gtv03f0vb4e6n6gfg45k9"
-    },
-    "method": "known_saksmappe_id_only",
-    "name": "RME-M 2023/9221 eInnsyn monitor"
+    "checked_at_utc": "2026-05-06T19:18:45.972550+00:00",
+    "method": "Direct lookup by known Saksmappe ID, then fetch journalposts belonging to the case.",
+    "name": "RME-M 2023/9221 eInnsyn monitor",
+    "rme_m_administrativ_enhet": "enh_01j73r5z2cf6xvstqj4d6fteq4"
   },
   "total_journalposts": 7
 }
