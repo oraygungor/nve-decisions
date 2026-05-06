@@ -1,10 +1,10 @@
 {
   "case": {
     "administrativ_enhet": "RME-M - Seksjon for marked og systemdrift",
-    "administrativ_enhet_objekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
+    "administrativ_enhet_id": "enh_01j73r5z2cf6xvstqj4d6fteq4",
     "api_link": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "entity": "Danske Commodities",
+    "entity": "Saksmappe",
     "externalId": "http://data.einnsyn.no/noark4/Saksmappe--970205039--9221--2023",
     "id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "published": "2023-06-20T22:57:40.6+02:00",
@@ -12,14 +12,14 @@
       "administrativEnhet": "RME-M - Seksjon for marked og systemdrift",
       "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
       "arkivdel": "arkd_01j7403h6xfajbpg45nh5n5jvh",
-      "entity": "Danske Commodities",
+      "entity": "Saksmappe",
       "externalId": "http://data.einnsyn.no/noark4/Saksmappe--970205039--9221--2023",
       "id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
       "journalenhet": "enh_01j73r5z2cf6xvstqj4d6fteq4",
       "offentligTittel": "- Avskjermet",
       "offentligTittelSensitiv": "- Avskjermet",
-      "oppdatertDato": "2022-02-06T22:58:48.798737+02:00",
-      "publisertDato": "2021-01-20T22:57:40.6+02:00",
+      "oppdatertDato": "2024-05-06T22:58:48.798737+02:00",
+      "publisertDato": "2023-06-20T22:57:40.6+02:00",
       "saksaar": 2023,
       "saksnummer": "2023/9221",
       "sakssekvensnummer": 9221
@@ -39,6 +39,7 @@
       "journal_year": 2024,
       "journalpost_number": 5,
       "journalpost_type": "utgaaende_dokument",
+      "legal_basis": null,
       "published": "2026-02-19T21:57:45.153782Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
@@ -66,9 +67,52 @@
         "slug": "2023-9221-36540-avskjermet"
       },
       "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
       "title": "- Avskjermet",
       "updated": "2026-02-19T21:57:45.153782Z",
       "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--5--2024"
+    },
+    {
+      "api_link": "https://api.einnsyn.no/journalpost/jp_01k4zvfzatfb9akbsyftm64fb2",
+      "document_date": "2025-09-01",
+      "entity": "Journalpost",
+      "externalId": "http://data.einnsyn.no/noark4/Journalpost--970205039--2023--9221--7--2025",
+      "id": "jp_01k4zvfzatfb9akbsyftm64fb2",
+      "journal_date": "2025-09-04",
+      "journal_year": 2025,
+      "journalpost_number": 7,
+      "journalpost_type": "inngaaende_dokument",
+      "legal_basis": null,
+      "published": "2025-09-12T20:57:26.618879Z",
+      "raw": {
+        "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
+        "dokumentbeskrivelse": [],
+        "dokumentetsDato": "2025-09-01",
+        "entity": "Journalpost",
+        "externalId": "http://data.einnsyn.no/noark4/Journalpost--970205039--2023--9221--7--2025",
+        "id": "jp_01k4zvfzatfb9akbsyftm64fb2",
+        "journalaar": 2025,
+        "journaldato": "2025-09-04",
+        "journalenhet": "enh_01j73r5z2cf6xvstqj4d6fteq4",
+        "journalpostnummer": 7,
+        "journalposttype": "inngaaende_dokument",
+        "korrespondansepart": [
+          "kp_01k4zvh175ejf9sr46shng8zmc"
+        ],
+        "legacyFoelgsakenReferanse": [],
+        "legacyJournalposttype": "http://www.arkivverket.no/standarder/noark5/arkivstruktur/inngåendeDokument",
+        "offentligTittel": "- Avskjermet",
+        "offentligTittelSensitiv": "- Avskjermet",
+        "oppdatertDato": "2025-09-12T20:58:01.312605Z",
+        "publisertDato": "2025-09-12T20:57:26.618879Z",
+        "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+        "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5"
+      },
+      "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
+      "title": "- Avskjermet",
+      "updated": "2025-09-12T20:58:01.312605Z",
+      "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--7--2025"
     },
     {
       "api_link": "https://api.einnsyn.no/journalpost/jp_01k0z3ks78fy9s26edxmrc1f90",
@@ -80,6 +124,7 @@
       "journal_year": 2025,
       "journalpost_number": 6,
       "journalpost_type": "utgaaende_dokument",
+      "legal_basis": null,
       "published": "2025-07-24T20:57:18.312092Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
@@ -106,6 +151,7 @@
         "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5"
       },
       "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
       "title": "- Avskjermet",
       "updated": "2025-07-24T20:57:18.312092Z",
       "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--6--2025"
@@ -120,6 +166,7 @@
       "journal_year": 2024,
       "journalpost_number": 4,
       "journalpost_type": "inngaaende_dokument",
+      "legal_basis": null,
       "published": "2024-05-23T20:58:46.411Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
@@ -146,6 +193,7 @@
         "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5"
       },
       "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
       "title": "RE: Forespørsel - NVEs referanse: 202309221-2",
       "updated": "2024-05-23T20:58:46.487342Z",
       "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--4--2024"
@@ -160,6 +208,7 @@
       "journal_year": 2024,
       "journalpost_number": 3,
       "journalpost_type": "inngaaende_dokument",
+      "legal_basis": null,
       "published": "2024-05-06T20:58:48.752Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
@@ -186,6 +235,7 @@
         "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5"
       },
       "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
       "title": "Bekreftelse på mottatt henvendelse",
       "updated": "2024-05-06T20:58:48.808576Z",
       "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--3--2024"
@@ -200,6 +250,7 @@
       "journal_year": 2024,
       "journalpost_number": 2,
       "journalpost_type": "utgaaende_dokument",
+      "legal_basis": null,
       "published": "2024-04-30T20:57:58.279Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
@@ -226,6 +277,7 @@
         "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5"
       },
       "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
       "title": "Forespørsel - Avskjermet",
       "updated": "2024-04-30T20:57:58.327780Z",
       "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--2--2024"
@@ -240,6 +292,7 @@
       "journal_year": 2023,
       "journalpost_number": 1,
       "journalpost_type": "utgaaende_dokument",
+      "legal_basis": null,
       "published": "2023-06-20T20:57:40.602Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
@@ -266,20 +319,29 @@
         "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5"
       },
       "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
       "title": "- Avskjermet",
       "updated": "2023-06-20T20:57:40.687658Z",
       "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--1--2023"
     }
   ],
   "monitor": {
-    "api_urls": {
-      "case": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9",
-      "journalposts": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9/journalpost?limit=100&sortBy=publisertDato&sortOrder=desc"
-    },
     "case_id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "checked_at_utc": "2026-05-06T19:18:45.972550+00:00",
-    "method": "Direct lookup by known Saksmappe ID, then fetch journalposts belonging to the case.",
+    "checked_at_utc": "2026-05-06T19:23:58.083335+00:00",
+    "filters_not_used": [
+      "state",
+      "stat0",
+      "journalenhet",
+      "searchTerm",
+      "saved_search_id",
+      "title",
+      "CASE_TITLE"
+    ],
+    "filters_used": {
+      "case_id": "sm_01j76gtv03f0vb4e6n6gfg45k9"
+    },
+    "method": "Direct lookup by known Saksmappe ID, then fetch all journalposts for that case.",
     "name": "RME-M 2023/9221 eInnsyn monitor",
     "rme_m_administrativ_enhet": "enh_01j73r5z2cf6xvstqj4d6fteq4"
   },
