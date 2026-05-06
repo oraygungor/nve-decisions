@@ -4,7 +4,7 @@
     "administrativ_enhet_objekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
     "api_link": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "entity": "Saksmappe",
+    "entity": "Danske commodities has been added",
     "externalId": "http://data.einnsyn.no/noark4/Saksmappe--970205039--9221--2023",
     "id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "published": "2023-06-20T22:57:40.6+02:00",
@@ -72,7 +72,7 @@
     },
     {
       "api_link": "https://api.einnsyn.no/journalpost/jp_01k4zvfzatfb9akbsyftm64fb2",
-      "document_date": "2025-09-01",
+      "document_date": "2024-09-01",
       "entity": "Journalpost",
       "externalId": "http://data.einnsyn.no/noark4/Journalpost--970205039--2023--9221--7--2025",
       "id": "jp_01k4zvfzatfb9akbsyftm64fb2",
