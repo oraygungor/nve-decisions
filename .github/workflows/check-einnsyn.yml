@@ -1,9 +1,12 @@
 name: Monitor eInnsyn
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "0 * * * *"
-  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   monitor:
@@ -12,6 +15,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -20,30 +26,32 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests
 
-      - name: Run monitor
+      - name: Run eInnsyn monitor
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
         run: |
-          python monitor_einnsyn.py > latest_result.json
+          python monitor_einnsyn.py
 
-      - name: Ensure JSON exists
-        run: |
-          if [ ! -f latest_result.json ]; then
-            echo "{}" > latest_result.json
-          fi
-
-      - name: Commit latest JSON
+      - name: Commit latest result if changed
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
+          if [ ! -f latest_result.json ]; then
+            echo "latest_result.json was not created by monitor_einnsyn.py"
+            exit 1
+          fi
+
           git add latest_result.json
 
-          git diff --cached --quiet && echo "No changes to commit" && exit 0
-
-          git commit -m "Update latest eInnsyn result"
-          git push
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update latest eInnsyn result"
+            git push
+          fi
