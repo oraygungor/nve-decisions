@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin
 
 import requests
@@ -17,6 +17,11 @@ BASE = "https://api.einnsyn.no"
 KNOWN_CASE_ID = "sm_01j76gtv03f0vb4e6n6gfg45k9"
 CASE_NUMBER = "2023/9221"
 RME_M_ADMIN_ENHET = "enh_01j73r5z2cf6xvstqj4d6fteq4"
+
+CASE_WEB_LINK = (
+    "https://einnsyn.no/saksmappe?id="
+    "http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FSaksmappe--970205039--9221--2023"
+)
 
 LATEST_FILE = Path("latest_result.json")
 
@@ -35,12 +40,13 @@ VISIBLE_JOURNALPOST_FIELDS = [
     "id",
     "title",
     "published",
+    "updated",
     "journal_date",
     "document_date",
+    "journal_year",
     "journalpost_number",
     "journalpost_type",
     "externalId",
-    "web_link",
     "shielding",
     "legal_basis",
 ]
@@ -96,7 +102,7 @@ def simplify_case(case: Dict[str, Any]) -> Dict[str, Any]:
         "administrativ_enhet_id": case.get("administrativEnhetObjekt") or case.get("journalenhet"),
         "externalId": external_id,
         "api_link": f"{BASE}/saksmappe/{case.get('id')}" if case.get("id") else None,
-        "web_link": make_web_link(entity, external_id),
+        "web_link": CASE_WEB_LINK,
         "raw": case,
     }
 
@@ -185,6 +191,7 @@ def build_result() -> Dict[str, Any]:
             "checked_at_utc": datetime.now(timezone.utc).isoformat(),
             "case_id": KNOWN_CASE_ID,
             "case_number": CASE_NUMBER,
+            "case_web_link": CASE_WEB_LINK,
             "rme_m_administrativ_enhet": RME_M_ADMIN_ENHET,
             "method": "Direct lookup by known Saksmappe ID, then fetch all journalposts for that case.",
             "filters_used": {
@@ -233,14 +240,6 @@ def save_latest_result(result: Dict[str, Any]) -> None:
         f.write("\n")
 
 
-def journalpost_ids(result: Dict[str, Any]) -> Set[str]:
-    return {
-        jp["id"]
-        for jp in result.get("journalposts", [])
-        if isinstance(jp, dict) and jp.get("id")
-    }
-
-
 def journalposts_by_id(result: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return {
         jp["id"]: jp
@@ -251,6 +250,10 @@ def journalposts_by_id(result: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 def visible_journalpost_snapshot(jp: Dict[str, Any]) -> Dict[str, Any]:
     return {field: jp.get(field) for field in VISIBLE_JOURNALPOST_FIELDS}
+
+
+def field_existed_before(jp: Dict[str, Any], field: str) -> bool:
+    return field in jp and jp.get(field) is not None
 
 
 def detect_changes(previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
@@ -268,27 +271,56 @@ def detect_changes(previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[st
     removed = [visible_journalpost_snapshot(previous_by_id[jp_id]) for jp_id in removed_ids]
 
     changed_visible_fields = []
+    newly_monitored_fields = []
 
     for jp_id in common_ids:
-        before = visible_journalpost_snapshot(previous_by_id[jp_id])
-        after = visible_journalpost_snapshot(current_by_id[jp_id])
+        before_full = previous_by_id[jp_id]
+        after_full = current_by_id[jp_id]
 
-        field_changes = {}
+        before = visible_journalpost_snapshot(before_full)
+        after = visible_journalpost_snapshot(after_full)
+
+        material_field_changes = {}
+        monitor_capture_changes = {}
 
         for field in VISIBLE_JOURNALPOST_FIELDS:
-            if before.get(field) != after.get(field):
-                field_changes[field] = {
-                    "before": before.get(field),
-                    "after": after.get(field),
-                }
+            before_value = before.get(field)
+            after_value = after.get(field)
 
-        if field_changes:
+            if before_value == after_value:
+                continue
+
+            if not field_existed_before(before_full, field) and after_value is not None:
+                monitor_capture_changes[field] = {
+                    "before": before_value,
+                    "after": after_value,
+                    "interpretation": "This field appears to be newly captured by the monitor. It is not necessarily an eInnsyn change.",
+                }
+                continue
+
+            material_field_changes[field] = {
+                "before": before_value,
+                "after": after_value,
+            }
+
+        if material_field_changes:
             changed_visible_fields.append(
                 {
                     "id": jp_id,
                     "journalpost_number": after.get("journalpost_number"),
                     "title": after.get("title"),
-                    "changes": field_changes,
+                    "changes": material_field_changes,
+                    "web_link": after.get("web_link"),
+                }
+            )
+
+        if monitor_capture_changes:
+            newly_monitored_fields.append(
+                {
+                    "id": jp_id,
+                    "journalpost_number": after.get("journalpost_number"),
+                    "title": after.get("title"),
+                    "newly_captured_fields": monitor_capture_changes,
                     "web_link": after.get("web_link"),
                 }
             )
@@ -307,9 +339,13 @@ def detect_changes(previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[st
         "material_change_detected": material,
         "previous_journalpost_count": previous_count,
         "current_journalpost_count": current_count,
+        "case_id": KNOWN_CASE_ID,
+        "case_number": CASE_NUMBER,
+        "case_web_link": CASE_WEB_LINK,
         "added_journalposts": added,
         "removed_journalposts": removed,
         "changed_visible_fields": changed_visible_fields,
+        "newly_monitored_fields_not_treated_as_material": newly_monitored_fields,
     }
 
 
@@ -326,6 +362,7 @@ def make_non_llm_email_body(change_report: Dict[str, Any]) -> str:
             "",
             f"Case ID: {KNOWN_CASE_ID}",
             f"Case number: {CASE_NUMBER}",
+            f"Case link: {CASE_WEB_LINK}",
             f"Previous journalpost count: {change_report.get('previous_journalpost_count')}",
             f"Current journalpost count: {change_report.get('current_journalpost_count')}",
             "",
@@ -337,13 +374,14 @@ def make_non_llm_email_body(change_report: Dict[str, Any]) -> str:
         for jp in change_report["added_journalposts"]:
             lines.extend(
                 [
-                    f"- Journalpost number: {jp.get('journalpost_number')}",
+                    f"- Before: not present in the previous saved result.",
+                    f"  Now: journalpost number {jp.get('journalpost_number')} is present.",
                     f"  Title: {jp.get('title')}",
                     f"  Journal date: {jp.get('journal_date')}",
                     f"  Document date: {jp.get('document_date')}",
                     f"  Published: {jp.get('published')}",
                     f"  Type: {jp.get('journalpost_type')}",
-                    f"  Link: {jp.get('web_link')}",
+                    f"  Journalpost link: {jp.get('web_link')}",
                     "",
                 ]
             )
@@ -353,14 +391,13 @@ def make_non_llm_email_body(change_report: Dict[str, Any]) -> str:
         for jp in change_report["removed_journalposts"]:
             lines.extend(
                 [
-                    f"- Journalpost ID: {jp.get('id')}",
-                    f"  Journalpost number: {jp.get('journalpost_number')}",
+                    f"- Before: journalpost number {jp.get('journalpost_number')} was present.",
+                    f"  Now: it is no longer present.",
                     f"  Title: {jp.get('title')}",
                     f"  Journal date: {jp.get('journal_date')}",
                     f"  Document date: {jp.get('document_date')}",
                     f"  Published: {jp.get('published')}",
                     f"  Type: {jp.get('journalpost_type')}",
-                    f"  Link: {jp.get('web_link')}",
                     "",
                 ]
             )
@@ -372,18 +409,22 @@ def make_non_llm_email_body(change_report: Dict[str, Any]) -> str:
                 [
                     f"- Journalpost number: {change.get('journalpost_number')}",
                     f"  Title: {change.get('title')}",
-                    f"  Link: {change.get('web_link')}",
+                    f"  Journalpost link: {change.get('web_link')}",
                 ]
             )
 
             for field, values in change.get("changes", {}).items():
-                lines.append(f"  {field}: {values.get('before')} -> {values.get('after')}")
+                lines.append(f"  {field}:")
+                lines.append(f"    Before: {values.get('before')}")
+                lines.append(f"    Now: {values.get('after')}")
 
             lines.append("")
 
-    if not change_report["material_change_detected"]:
+    if change_report.get("newly_monitored_fields_not_treated_as_material"):
+        lines.append("Note:")
         lines.append(
-            "The stored JSON changed, but no added, removed, or visibly changed journalposts were detected."
+            "Some fields are now captured by the monitor but were missing in the previous stored JSON. "
+            "These are not treated as confirmed eInnsyn changes."
         )
 
     return "\n".join(lines).strip()
@@ -393,89 +434,38 @@ def make_llm_prompt(change_report: Dict[str, Any]) -> str:
     return f"""
 You are preparing an email alert for a monitored Norwegian eInnsyn case.
 
-The email recipient does not need a technical JSON diff.
-The recipient needs a clear, practical explanation of what materially changed.
+The recipient needs a practical explanation of what materially changed in the monitored case.
+Do not write a technical JSON diff.
 
-Important:
-Do not only say that something changed.
-For every material change, explain:
-- what the item is,
-- what it was before,
-- what it is now,
-- why this matters, if the change is meaningful.
+Important rules:
+- Explain changes as "Before" and "Now" where possible.
+- If a journalpost is newly added, say that it was not present in the previous saved result and is now present.
+- If a journalpost was removed, say that it was present before and is no longer present.
+- If a visible field changed, explain exactly what changed, including the before value and current value.
+- If the change report says a field was newly captured by the monitor, do NOT present it as a confirmed eInnsyn change.
+- Ignore technical metadata changes, raw API formatting changes, ordering changes, and checked timestamps.
+- Translate Norwegian text to English where useful, but keep the original Norwegian in parentheses for titles, legal bases, and document types.
+- Do not translate IDs, case numbers, URLs, or legal section references.
+- Use the case link as the main link.
+- Do not invent facts.
+- Do not exaggerate the alert if there is no material change.
 
-Definition of material change:
-- A new journalpost/document was added.
-- A journalpost/document was removed.
-- The total number of journalposts changed.
-- A visible field changed in a way that affects the understanding of the case, such as title, journal date, document date, published date, document type, shielding/legal basis, sender/recipient information, or web link.
-
-Definition of non-material change:
-- Only technical metadata changed.
-- Only the checked timestamp changed.
-- Raw API formatting changed without any visible change to the case or journalposts.
-- API ordering changed without added, removed, or visibly changed journalposts.
-
-Write the email body in clear plain English.
-
-Mandatory structure:
-
-1. Start with a one-sentence summary:
-   - say whether a material change was detected,
-   - say the case number,
-   - say the main reason.
-
-2. Then write a section called "What changed".
-
-3. For each added journalpost, write:
-   - "New journalpost added"
-   - journalpost number,
-   - title,
-   - journal date,
-   - document date,
-   - published date,
-   - document type,
-   - shielding/legal basis if available,
-   - link.
-
-4. For each removed journalpost, write:
-   - "Journalpost removed"
-   - the same available fields.
-
-5. For each changed existing journalpost, write the comparison explicitly in this format:
-   - Journalpost [number/title/id]
-   - Field changed: [field name]
-   - Before: [previous value]
-   - Now: [current value]
-
-6. If the only changes are shielding/legal-basis changes, say that clearly:
-   - "No new or removed journalposts were detected, but shielding/legal-basis information changed."
-
-7. If a field changed from missing/null/empty to a value, say:
-   - "Previously not shown"
-   - "Now shown as: [value]"
-
-8. If a field changed from a value to missing/null/empty, say:
-   - "Previously shown as: [value]"
-   - "Now not shown"
-
-9. Do not mention unchanged fields.
-
-10. Do not invent sender/recipient names, legal effects, document content, or regulatory consequences.
-
-11. Do not say "several" unless you then list each affected journalpost individually.
-
-12. Keep the email concise but specific enough that the recipient can understand what changed without opening the JSON.
-
-Output only the email body text.
+Required structure:
+1. One-sentence conclusion.
+2. Case details.
+3. What changed, using Before / Now.
+4. Practical note, if relevant.
 
 Case context:
 Case ID: {KNOWN_CASE_ID}
 Case number: {CASE_NUMBER}
-Organisation/unit: RME-M - Seksjon for marked og systemdrift
+Organisation/unit: RME-M - Section for Market and System Operation (RME-M - Seksjon for marked og systemdrift)
+Main case link: {CASE_WEB_LINK}
 
 Detected change report:
 {json.dumps(change_report, indent=2, ensure_ascii=False)}
+
+Output only the email body text.
 """.strip()
 
 
