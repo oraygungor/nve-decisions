@@ -1,61 +1,54 @@
-import os
 import json
+import os
 import smtplib
-import hashlib
-import requests
+import sys
+from copy import deepcopy
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from urllib.parse import urljoin, quote
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote, urljoin
+
+import requests
 
 
 BASE = "https://api.einnsyn.no"
 
-# RME-M - Seksjon for marked og systemdrift
-RME_M_ADMIN_ENHET = "enh_01j73r5z2cf6xvstqj4d6fteq4"
-
-# Known Saksmappe ID for case 2023/9221.
-# This is NOT RME-M. This is the specific case folder.
+# This is the eInnsyn internal Saksmappe ID for the RME-M case 2023/9221.
 KNOWN_CASE_ID = "sm_01j76gtv03f0vb4e6n6gfg45k9"
 
-CASE_NUMBER = "2023/9221"
-
-SEARCH_TERMS = [
-    '"2023/9221"',
-    '"2023/09221"',
-    "2023/9221",
-    "2023/09221",
-]
-
+OUTPUT_FILE = Path("latest_result.json")
 LIMIT = 100
-STATE_FILE = "einnsyn_last.json"
+TIMEOUT = 30
 
 
-def get_json(url, params=None):
-    response = requests.get(url, params=params, timeout=30)
+def get_json(url: str, params: Optional[dict] = None) -> Any:
+    response = requests.get(url, params=params, timeout=TIMEOUT)
+    print(f"GET {response.url} -> {response.status_code}", file=sys.stderr)
     response.raise_for_status()
     return response.json()
 
 
-def extract_items(data):
-    if isinstance(data, dict):
-        if isinstance(data.get("items"), list):
-            return data["items"]
-        if isinstance(data.get("results"), list):
-            return data["results"]
-        if isinstance(data.get("searchHits"), list):
-            return [x.get("source", x) for x in data["searchHits"]]
+def extract_items(data: Any) -> List[dict]:
+    """
+    eInnsyn endpoints may return lists directly or wrap lists in keys.
+    This keeps the script tolerant.
+    """
     if isinstance(data, list):
         return data
+
+    if isinstance(data, dict):
+        for key in ("items", "results", "data"):
+            if isinstance(data.get(key), list):
+                return data[key]
+
+        if isinstance(data.get("searchHits"), list):
+            return [hit.get("source", hit) for hit in data["searchHits"]]
+
     return []
 
 
-def normalize_entity(value):
-    if isinstance(value, list):
-        return value[0] if value else None
-    return value
-
-
-def make_web_link(entity, external_id):
+def web_link_for(entity: str, external_id: Optional[str]) -> Optional[str]:
     if not external_id:
         return None
 
@@ -68,31 +61,31 @@ def make_web_link(entity, external_id):
     return None
 
 
-def simplify_case(case):
-    entity = normalize_entity(case.get("entity") or case.get("type"))
+def simplify_case(case: dict) -> dict:
+    external_id = case.get("externalId")
 
     return {
         "id": case.get("id"),
-        "entity": entity,
+        "entity": case.get("entity"),
         "title": case.get("offentligTittel") or case.get("title"),
         "case_number": case.get("saksnummer"),
         "published": case.get("publisertDato"),
         "updated": case.get("oppdatertDato"),
         "administrativ_enhet": case.get("administrativEnhet"),
-        "administrativ_enhet_object": case.get("administrativEnhetObjekt"),
-        "externalId": case.get("externalId"),
+        "administrativ_enhet_objekt": case.get("administrativEnhetObjekt"),
+        "externalId": external_id,
         "api_link": f"{BASE}/saksmappe/{case.get('id')}" if case.get("id") else None,
-        "web_link": make_web_link("Saksmappe", case.get("externalId")),
+        "web_link": web_link_for("Saksmappe", external_id),
         "raw": case,
     }
 
 
-def simplify_journalpost(jp):
-    entity = normalize_entity(jp.get("entity") or jp.get("type"))
+def simplify_journalpost(jp: dict) -> dict:
+    external_id = jp.get("externalId")
 
     return {
         "id": jp.get("id"),
-        "entity": entity,
+        "entity": jp.get("entity"),
         "title": jp.get("offentligTittel") or jp.get("title"),
         "published": jp.get("publisertDato"),
         "updated": jp.get("oppdatertDato"),
@@ -102,71 +95,25 @@ def simplify_journalpost(jp):
         "journalpost_number": jp.get("journalpostnummer"),
         "journalpost_type": jp.get("journalposttype"),
         "saksmappe": jp.get("saksmappe"),
-        "externalId": jp.get("externalId"),
+        "externalId": external_id,
         "api_link": f"{BASE}/journalpost/{jp.get('id')}" if jp.get("id") else None,
-        "web_link": make_web_link("Journalpost", jp.get("externalId")),
+        "web_link": web_link_for("Journalpost", external_id),
         "raw": jp,
     }
 
 
-def find_case_by_search():
-    for term in SEARCH_TERMS:
-        params = {
-            "query": term,
-            "limit": LIMIT,
-            "sortBy": "publisertDato",
-            "sortOrder": "desc",
-            "administrativEnhet": RME_M_ADMIN_ENHET,
-        }
+def fetch_case(case_id: str) -> dict:
+    data = get_json(f"{BASE}/saksmappe/{case_id}")
 
-        data = get_json(f"{BASE}/search", params=params)
-        items = extract_items(data)
+    if not isinstance(data, dict):
+        raise RuntimeError("Unexpected response from saksmappe endpoint.")
 
-        for item in items:
-            entity = normalize_entity(item.get("entity") or item.get("type"))
-            case_number = item.get("saksnummer")
-            admin_enhet = item.get("administrativEnhetObjekt") or item.get("journalenhet")
-
-            if (
-                entity == "Saksmappe"
-                and case_number == CASE_NUMBER
-                and admin_enhet == RME_M_ADMIN_ENHET
-            ):
-                return item
-
-    return None
+    return data
 
 
-def fetch_known_case():
-    case = get_json(f"{BASE}/saksmappe/{KNOWN_CASE_ID}")
+def fetch_case_journalposts(case_id: str) -> List[dict]:
+    all_items: List[dict] = []
 
-    case_number = case.get("saksnummer")
-    admin_enhet = case.get("administrativEnhetObjekt") or case.get("journalenhet")
-
-    if case_number != CASE_NUMBER:
-        raise RuntimeError(
-            f"Known case ID resolved, but case number was {case_number}, expected {CASE_NUMBER}."
-        )
-
-    if admin_enhet != RME_M_ADMIN_ENHET:
-        raise RuntimeError(
-            f"Known case ID resolved, but admin unit was {admin_enhet}, expected {RME_M_ADMIN_ENHET}."
-        )
-
-    return case
-
-
-def find_case():
-    case = find_case_by_search()
-
-    if case:
-        return case
-
-    return fetch_known_case()
-
-
-def fetch_case_journalposts(case_id):
-    all_items = []
     next_url = f"{BASE}/saksmappe/{case_id}/journalpost"
     params = {
         "limit": LIMIT,
@@ -181,127 +128,158 @@ def fetch_case_journalposts(case_id):
         items = extract_items(data)
         all_items.extend(items)
 
-        next_url = data.get("next") if isinstance(data, dict) else None
-        if next_url and next_url.startswith("/"):
-            next_url = urljoin(BASE, next_url)
+        if isinstance(data, dict):
+            next_url = data.get("next")
+            if next_url and next_url.startswith("/"):
+                next_url = urljoin(BASE, next_url)
+        else:
+            next_url = None
 
     return all_items
 
 
-def build_result():
-    case = find_case()
-    case_id = case["id"]
+def build_result() -> dict:
+    case_raw = fetch_case(KNOWN_CASE_ID)
+    case = simplify_case(case_raw)
 
-    journalposts = fetch_case_journalposts(case_id)
-    simplified_journalposts = [simplify_journalpost(jp) for jp in journalposts]
+    journalposts_raw = fetch_case_journalposts(KNOWN_CASE_ID)
+    journalposts = [simplify_journalpost(jp) for jp in journalposts_raw]
 
-    simplified_journalposts.sort(
-        key=lambda x: x.get("published") or "",
+    journalposts.sort(
+        key=lambda item: (
+            item.get("published") or "",
+            str(item.get("journalpost_number") or ""),
+            item.get("id") or "",
+        ),
         reverse=True,
     )
 
-    return {
+    result = {
         "monitor": {
             "name": "RME-M 2023/9221 eInnsyn monitor",
             "checked_at_utc": datetime.now(timezone.utc).isoformat(),
-            "case_number": CASE_NUMBER,
-            "case_id": case_id,
-            "rme_m_administrativ_enhet": RME_M_ADMIN_ENHET,
+            "case_id": KNOWN_CASE_ID,
+            "case_number": case.get("case_number"),
+            "method": "known_saksmappe_id_only",
             "filters_used": {
-                "query": CASE_NUMBER,
-                "administrativEnhet": RME_M_ADMIN_ENHET,
+                "known_case_id": KNOWN_CASE_ID,
             },
-            "fallback_case_id": KNOWN_CASE_ID,
+            "filters_not_used": [
+                "searchTerm",
+                "state",
+                "stat0",
+                "saved_search_id",
+                "journalenhet",
+                "CASE_TITLE",
+            ],
         },
-        "case": simplify_case(case),
-        "total_journalposts": len(simplified_journalposts),
-        "journalposts": simplified_journalposts,
+        "case": case,
+        "total_journalposts": len(journalposts),
+        "journalposts": journalposts,
     }
 
+    return result
 
-def comparable_result(result):
-    clean = json.loads(json.dumps(result, ensure_ascii=False))
 
-    if "monitor" in clean:
+def comparable_result(result: dict) -> dict:
+    """
+    Remove volatile fields before comparing.
+
+    checked_at_utc changes every run, so it must not trigger alerts.
+    """
+    clean = deepcopy(result)
+
+    if isinstance(clean.get("monitor"), dict):
         clean["monitor"].pop("checked_at_utc", None)
 
     return clean
 
 
-def stable_hash(data):
-    dumped = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
-
-
-def load_previous():
-    if not os.path.exists(STATE_FILE):
+def load_previous_result() -> Optional[dict]:
+    if not OUTPUT_FILE.exists():
         return None
 
-    with open(STATE_FILE, "r", encoding="utf-8") as f:
+    with OUTPUT_FILE.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_current(result):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2, sort_keys=True)
+def save_result(result: dict) -> None:
+    with OUTPUT_FILE.open("w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False, sort_keys=True)
         f.write("\n")
 
 
-def summarize_changes(previous, current):
-    previous_posts = {
-        jp.get("id"): jp
-        for jp in previous.get("journalposts", [])
-        if jp.get("id")
-    }
+def split_recipients(value: str) -> List[str]:
+    if not value:
+        return []
 
-    current_posts = {
-        jp.get("id"): jp
-        for jp in current.get("journalposts", [])
-        if jp.get("id")
-    }
-
-    added_ids = sorted(set(current_posts) - set(previous_posts))
-    removed_ids = sorted(set(previous_posts) - set(current_posts))
-
-    changed_ids = []
-    for jp_id in sorted(set(previous_posts) & set(current_posts)):
-        if stable_hash(previous_posts[jp_id]) != stable_hash(current_posts[jp_id]):
-            changed_ids.append(jp_id)
-
-    return {
-        "added_count": len(added_ids),
-        "removed_count": len(removed_ids),
-        "changed_count": len(changed_ids),
-        "added": [current_posts[jp_id] for jp_id in added_ids],
-        "removed": [previous_posts[jp_id] for jp_id in removed_ids],
-        "changed_ids": changed_ids,
-        "previous_total_journalposts": previous.get("total_journalposts"),
-        "current_total_journalposts": current.get("total_journalposts"),
-    }
+    normalized = value.replace(";", ",")
+    return [item.strip() for item in normalized.split(",") if item.strip()]
 
 
-def send_email(subject, body):
-    gmail_user = os.environ.get("GMAIL_USER")
-    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD")
-    alert_to = os.environ.get("ALERT_TO")
+def make_change_summary(previous: Optional[dict], current: dict) -> str:
+    if previous is None:
+        return "No previous latest_result.json existed. A baseline has been created."
 
-    if not gmail_user:
-        raise RuntimeError("Missing environment variable: GMAIL_USER")
+    previous_posts = previous.get("journalposts", []) if isinstance(previous, dict) else []
+    current_posts = current.get("journalposts", [])
 
-    if not gmail_app_password:
-        raise RuntimeError("Missing environment variable: GMAIL_APP_PASSWORD")
+    previous_ids = {item.get("id") for item in previous_posts if isinstance(item, dict)}
+    current_ids = {item.get("id") for item in current_posts if isinstance(item, dict)}
 
-    if not alert_to:
-        raise RuntimeError("Missing environment variable: ALERT_TO")
+    added_ids = sorted(current_ids - previous_ids)
+    removed_ids = sorted(previous_ids - current_ids)
 
-    recipients = [
-        x.strip()
-        for x in alert_to.replace(";", ",").split(",")
-        if x.strip()
+    lines = [
+        "The monitored eInnsyn result has changed.",
+        "",
+        f"Case ID: {KNOWN_CASE_ID}",
+        f"Case number: {current.get('case', {}).get('case_number')}",
+        f"Previous journalpost count: {len(previous_posts)}",
+        f"Current journalpost count: {len(current_posts)}",
+        "",
     ]
 
-    if not recipients:
-        raise RuntimeError("ALERT_TO does not contain any valid recipient.")
+    if added_ids:
+        lines.append("Added journalposts:")
+        for item in current_posts:
+            if item.get("id") in added_ids:
+                lines.append(
+                    f"- {item.get('id')} | no. {item.get('journalpost_number')} | "
+                    f"{item.get('published')} | {item.get('title')} | {item.get('web_link')}"
+                )
+        lines.append("")
+
+    if removed_ids:
+        lines.append("Removed journalposts:")
+        for item in previous_posts:
+            if item.get("id") in removed_ids:
+                lines.append(
+                    f"- {item.get('id')} | no. {item.get('journalpost_number')} | "
+                    f"{item.get('published')} | {item.get('title')} | {item.get('web_link')}"
+                )
+        lines.append("")
+
+    if not added_ids and not removed_ids:
+        lines.append("No added or removed journalpost IDs were detected.")
+        lines.append("The change is likely in metadata, titles, dates, shielding information, or raw fields.")
+
+    return "\n".join(lines)
+
+
+def send_email(subject: str, body: str) -> None:
+    gmail_user = os.environ.get("GMAIL_USER", "").strip()
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+    alert_to_raw = os.environ.get("ALERT_TO", "").strip()
+
+    recipients = split_recipients(alert_to_raw)
+
+    if not gmail_user or not gmail_app_password or not recipients:
+        print(
+            "Email not sent because GMAIL_USER, GMAIL_APP_PASSWORD, or ALERT_TO is missing.",
+            file=sys.stderr,
+        )
+        return
 
     msg = EmailMessage()
     msg["From"] = gmail_user
@@ -310,72 +288,36 @@ def send_email(subject, body):
     msg.set_content(body)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-        smtp.login(gmail_user, gmail_app_password.replace(" ", ""))
+        smtp.login(gmail_user, gmail_app_password)
         smtp.send_message(msg)
 
+    print(f"Email sent to: {', '.join(recipients)}", file=sys.stderr)
 
-def main():
+
+def main() -> None:
+    previous_result = load_previous_result()
     current_result = build_result()
-    previous_result = load_previous()
 
-    if previous_result is None:
-        current_result["change_status"] = {
-            "changed": False,
-            "reason": "No previous JSON found. Baseline created only.",
-            "email_sent": False,
-        }
-
-        save_current(current_result)
-        print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
-        return
-
-    previous_comparable = comparable_result(previous_result)
+    previous_comparable = comparable_result(previous_result) if previous_result else None
     current_comparable = comparable_result(current_result)
 
-    changed = stable_hash(previous_comparable) != stable_hash(current_comparable)
+    changed = previous_comparable != current_comparable
 
-    if changed:
-        change_summary = summarize_changes(previous_result, current_result)
-
-        current_result["change_status"] = {
-            "changed": True,
-            "reason": "Current eInnsyn result differs from previous saved JSON.",
-            "email_sent": False,
-            "change_summary": change_summary,
-        }
-
-        email_body = (
-            "The monitored eInnsyn case has changed.\n\n"
-            f"Case: {CASE_NUMBER}\n"
-            f"Case ID: {current_result['monitor']['case_id']}\n"
-            f"Checked at UTC: {current_result['monitor']['checked_at_utc']}\n\n"
-            "Change summary:\n"
-            f"- Added journalposts: {change_summary['added_count']}\n"
-            f"- Removed journalposts: {change_summary['removed_count']}\n"
-            f"- Changed journalposts: {change_summary['changed_count']}\n"
-            f"- Previous total: {change_summary['previous_total_journalposts']}\n"
-            f"- Current total: {change_summary['current_total_journalposts']}\n\n"
-            "Current JSON:\n"
-            + json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True)
-        )
-
+    if previous_result is None:
+        print("No previous JSON found. Creating baseline only.", file=sys.stderr)
+    elif changed:
+        print("Change detected.", file=sys.stderr)
+        summary = make_change_summary(previous_result, current_result)
         send_email(
-            subject=f"eInnsyn changed: RME-M {CASE_NUMBER}",
-            body=email_body,
+            subject="eInnsyn monitor changed: RME-M 2023/9221",
+            body=summary,
         )
-
-        current_result["change_status"]["email_sent"] = True
-
     else:
-        current_result["change_status"] = {
-            "changed": False,
-            "reason": "No content change compared with previous saved JSON.",
-            "email_sent": False,
-        }
+        print("No change detected.", file=sys.stderr)
 
-    save_current(current_result)
+    save_result(current_result)
 
-    print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
+    print(json.dumps(current_result, indent=2, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":
