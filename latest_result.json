@@ -4,7 +4,7 @@
     "administrativ_enhet_id": "enh_01j73r5z2cf6xvstqj4d6fteq4",
     "api_link": "https://api.einnsyn.no/saksmappe/sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "entity": "Danske Commodities - Decision",
+    "entity": "Saksmappe",
     "externalId": "http://data.einnsyn.no/noark4/Saksmappe--970205039--9221--2023",
     "id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "published": "2023-06-20T22:57:40.6+02:00",
@@ -29,7 +29,49 @@
     "web_link": "https://einnsyn.no/saksmappe?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FSaksmappe--970205039--9221--2023"
   },
   "journalposts": [
- 
+    {
+      "api_link": "https://api.einnsyn.no/journalpost/jp_01khvyhd21eats1wxb1nvvk6fn",
+      "document_date": "2026-02-11",
+      "entity": "Journalpost",
+      "externalId": "http://data.einnsyn.no/noark4/Journalpost--970205039--2023--9221--5--2024",
+      "id": "jp_01khvyhd21eats1wxb1nvvk6fn",
+      "journal_date": "2026-02-11",
+      "journal_year": 2024,
+      "journalpost_number": 5,
+      "journalpost_type": "utgaaende_dokument",
+      "legal_basis": null,
+      "published": "2026-02-19T21:57:45.153782Z",
+      "raw": {
+        "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
+        "dokumentbeskrivelse": [],
+        "dokumentetsDato": "2026-02-11",
+        "entity": "Journalpost",
+        "externalId": "http://data.einnsyn.no/noark4/Journalpost--970205039--2023--9221--5--2024",
+        "id": "jp_01khvyhd21eats1wxb1nvvk6fn",
+        "journalaar": 2024,
+        "journaldato": "2026-02-11",
+        "journalenhet": "enh_01j73r5z2cf6xvstqj4d6fteq4",
+        "journalpostnummer": 5,
+        "journalposttype": "utgaaende_dokument",
+        "korrespondansepart": [
+          "kp_01khvyhd2kek8s081pxe512rr3"
+        ],
+        "legacyFoelgsakenReferanse": [],
+        "legacyJournalposttype": "http://www.arkivverket.no/standarder/noark5/arkivstruktur/utgåendeDokument",
+        "offentligTittel": "- Avskjermet",
+        "offentligTittelSensitiv": "- Avskjermet",
+        "oppdatertDato": "2026-02-19T21:57:45.153782Z",
+        "publisertDato": "2026-02-19T21:57:45.153782Z",
+        "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+        "skjerming": "skj_01j7403q5afqhsk2m1ffzn5ny5",
+        "slug": "2023-9221-36540-avskjermet"
+      },
+      "saksmappe": "sm_01j76gtv03f0vb4e6n6gfg45k9",
+      "shielding": "skj_01j7403q5afqhsk2m1ffzn5ny5",
+      "title": "- Avskjermet",
+      "updated": "2026-02-19T21:57:45.153782Z",
+      "web_link": "https://einnsyn.no/journalpost?id=http%3A%2F%2Fdata.einnsyn.no%2Fnoark4%2FJournalpost--970205039--2023--9221--5--2024"
+    },
     {
       "api_link": "https://api.einnsyn.no/journalpost/jp_01k4zvfzatfb9akbsyftm64fb2",
       "document_date": "2025-09-01",
@@ -41,7 +83,7 @@
       "journalpost_number": 7,
       "journalpost_type": "inngaaende_dokument",
       "legal_basis": null,
-      "published": "2015-09-12T20:57:26.618879Z",
+      "published": "2025-09-12T20:57:26.618879Z",
       "raw": {
         "administrativEnhetObjekt": "enh_01j73r5z2cf6xvstqj4d6fteq4",
         "dokumentbeskrivelse": [],
@@ -286,7 +328,7 @@
   "monitor": {
     "case_id": "sm_01j76gtv03f0vb4e6n6gfg45k9",
     "case_number": "2023/9221",
-    "checked_at_utc": "2026-05-06T19:23:58.083335+00:00",
+    "checked_at_utc": "2026-05-06T19:26:55.400181+00:00",
     "filters_not_used": [
       "state",
       "stat0",
