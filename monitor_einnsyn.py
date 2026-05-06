@@ -1,49 +1,45 @@
 import json
 import os
 import smtplib
-import ssl
 import sys
 from copy import deepcopy
 from datetime import datetime, timezone
-from email.message import EmailMessage
+from email.mime.text import MIMEText
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin
 
 import requests
 
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
 
 BASE = "https://api.einnsyn.no"
 
-# This is the eInnsyn internal Saksmappe ID for case 2023/9221.
 KNOWN_CASE_ID = "sm_01j76gtv03f0vb4e6n6gfg45k9"
-
-# This is the administrative unit object for RME-M:
-# RME-M - Seksjon for marked og systemdrift
+CASE_NUMBER = "2023/9221"
 RME_M_ADMIN_ENHET = "enh_01j73r5z2cf6xvstqj4d6fteq4"
 
-CASE_NUMBER = "2023/9221"
-OUTPUT_FILE = "latest_result.json"
+OUTPUT_FILE = Path("latest_result.json")
 LIMIT = 100
 
-# You can override this in GitHub Actions with env OPENAI_MODEL.
-# Note: if this model is not available in your OpenAI account, the API call will fail.
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
 
 
-def log(message: str) -> None:
-    print(message, flush=True)
-
-
-def get_json(url: str, params: dict | None = None) -> dict | list:
+def get_json(url: str, params: Optional[Dict[str, Any]] = None) -> Any:
     response = requests.get(url, params=params, timeout=30)
-    log(f"GET {response.url} -> {response.status_code}")
+    print(f"GET {response.url} -> {response.status_code}")
     response.raise_for_status()
     return response.json()
 
 
-def extract_items(data):
+def extract_items(data: Any) -> List[Dict[str, Any]]:
     """
     eInnsyn responses may use different wrappers depending on endpoint.
-    This makes the script tolerant.
+    This keeps the script tolerant.
     """
     if isinstance(data, dict):
         if isinstance(data.get("items"), list):
@@ -57,23 +53,22 @@ def extract_items(data):
     return []
 
 
-def make_web_link(entity: str | None, external_id: str | None) -> str | None:
-    if not entity or not external_id:
+def make_web_link(entity: str, external_id: Optional[str]) -> Optional[str]:
+    if not external_id:
         return None
 
     if entity == "Saksmappe":
-        path = "saksmappe"
-    elif entity == "Journalpost":
-        path = "journalpost"
-    else:
-        return None
+        return "https://einnsyn.no/saksmappe?id=" + quote(external_id, safe="")
 
-    return f"https://einnsyn.no/{path}?id=" + quote(external_id, safe="")
+    if entity == "Journalpost":
+        return "https://einnsyn.no/journalpost?id=" + quote(external_id, safe="")
+
+    return None
 
 
-def simplify_case(case: dict) -> dict:
+def simplify_case(case: Dict[str, Any]) -> Dict[str, Any]:
     external_id = case.get("externalId")
-    entity = case.get("entity")
+    entity = case.get("entity") or "Saksmappe"
 
     return {
         "id": case.get("id"),
@@ -86,14 +81,14 @@ def simplify_case(case: dict) -> dict:
         "administrativ_enhet_objekt": case.get("administrativEnhetObjekt"),
         "externalId": external_id,
         "api_link": f"{BASE}/saksmappe/{case.get('id')}" if case.get("id") else None,
-        "web_link": make_web_link(entity, external_id),
+        "web_link": make_web_link("Saksmappe", external_id),
         "raw": case,
     }
 
 
-def simplify_journalpost(jp: dict) -> dict:
+def simplify_journalpost(jp: Dict[str, Any]) -> Dict[str, Any]:
     external_id = jp.get("externalId")
-    entity = jp.get("entity")
+    entity = jp.get("entity") or "Journalpost"
 
     return {
         "id": jp.get("id"),
@@ -109,39 +104,20 @@ def simplify_journalpost(jp: dict) -> dict:
         "saksmappe": jp.get("saksmappe"),
         "externalId": external_id,
         "api_link": f"{BASE}/journalpost/{jp.get('id')}" if jp.get("id") else None,
-        "web_link": make_web_link(entity, external_id),
+        "web_link": make_web_link("Journalpost", external_id),
         "raw": jp,
     }
 
 
-def fetch_case_by_known_id() -> dict:
-    url = f"{BASE}/saksmappe/{KNOWN_CASE_ID}"
-    case = get_json(url)
-
-    if not isinstance(case, dict):
-        raise RuntimeError("Unexpected case response from eInnsyn.")
-
-    actual_case_number = case.get("saksnummer")
-    actual_admin = case.get("administrativEnhetObjekt") or case.get("journalenhet")
-
-    if actual_case_number != CASE_NUMBER:
-        raise RuntimeError(
-            f"Known case ID returned unexpected case number: {actual_case_number}"
-        )
-
-    if actual_admin != RME_M_ADMIN_ENHET:
-        raise RuntimeError(
-            f"Known case ID returned unexpected administrative unit: {actual_admin}"
-        )
-
-    return case
+def fetch_case() -> Dict[str, Any]:
+    return get_json(f"{BASE}/saksmappe/{KNOWN_CASE_ID}")
 
 
-def fetch_case_journalposts(case_id: str) -> list[dict]:
-    all_items = []
+def fetch_case_journalposts(case_id: str) -> List[Dict[str, Any]]:
+    all_items: List[Dict[str, Any]] = []
 
     next_url = f"{BASE}/saksmappe/{case_id}/journalpost"
-    params = {
+    params: Optional[Dict[str, Any]] = {
         "limit": LIMIT,
         "sortBy": "publisertDato",
         "sortOrder": "desc",
@@ -161,11 +137,18 @@ def fetch_case_journalposts(case_id: str) -> list[dict]:
     return all_items
 
 
-def build_result() -> dict:
-    case_raw = fetch_case_by_known_id()
-    case_id = case_raw["id"]
+def build_result() -> Dict[str, Any]:
+    checked_at = datetime.now(timezone.utc).isoformat()
 
-    journalposts_raw = fetch_case_journalposts(case_id)
+    case_raw = fetch_case()
+    case = simplify_case(case_raw)
+
+    if case.get("case_number") != CASE_NUMBER:
+        raise RuntimeError(
+            f"Known case ID returned unexpected case number: {case.get('case_number')}"
+        )
+
+    journalposts_raw = fetch_case_journalposts(KNOWN_CASE_ID)
     journalposts = [simplify_journalpost(jp) for jp in journalposts_raw]
 
     journalposts.sort(
@@ -180,17 +163,17 @@ def build_result() -> dict:
     result = {
         "monitor": {
             "name": "RME-M 2023/9221 eInnsyn monitor",
-            "checked_at_utc": datetime.now(timezone.utc).isoformat(),
-            "case_id": case_id,
+            "checked_at_utc": checked_at,
+            "case_id": KNOWN_CASE_ID,
             "case_number": CASE_NUMBER,
             "rme_m_administrativ_enhet": RME_M_ADMIN_ENHET,
-            "method": "known_case_id",
-            "api_urls_used": {
-                "case": f"{BASE}/saksmappe/{case_id}",
-                "journalposts": f"{BASE}/saksmappe/{case_id}/journalpost?limit={LIMIT}&sortBy=publisertDato&sortOrder=desc",
+            "method": "Direct lookup by known Saksmappe ID, then fetch journalposts belonging to the case.",
+            "api_urls": {
+                "case": f"{BASE}/saksmappe/{KNOWN_CASE_ID}",
+                "journalposts": f"{BASE}/saksmappe/{KNOWN_CASE_ID}/journalpost?limit={LIMIT}&sortBy=publisertDato&sortOrder=desc",
             },
         },
-        "case": simplify_case(case_raw),
+        "case": case,
         "total_journalposts": len(journalposts),
         "journalposts": journalposts,
     }
@@ -198,319 +181,229 @@ def build_result() -> dict:
     return result
 
 
-def load_previous_result() -> dict | None:
-    if not os.path.exists(OUTPUT_FILE):
+def stable_for_comparison(result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove fields that change every run and should not trigger an alert.
+    """
+    stable = deepcopy(result)
+
+    try:
+        stable["monitor"].pop("checked_at_utc", None)
+    except Exception:
+        pass
+
+    return stable
+
+
+def canonical_json(data: Any) -> str:
+    return json.dumps(
+        data,
+        ensure_ascii=False,
+        sort_keys=True,
+        indent=2,
+        default=str,
+    )
+
+
+def load_previous_result() -> Optional[Dict[str, Any]]:
+    if not OUTPUT_FILE.exists():
         return None
 
-    with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+    with OUTPUT_FILE.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def save_current_result(result: dict) -> None:
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2, sort_keys=True)
+def save_result(result: Dict[str, Any]) -> None:
+    with OUTPUT_FILE.open("w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, sort_keys=True, indent=2)
         f.write("\n")
 
 
-def comparable_result(result: dict) -> dict:
-    """
-    Remove fields that naturally change on every run, so they do not trigger false alerts.
-    """
-    cleaned = deepcopy(result)
-
-    if isinstance(cleaned, dict):
-        cleaned.get("monitor", {}).pop("checked_at_utc", None)
-
-    return cleaned
-
-
-def journalpost_map(result: dict | None) -> dict:
-    if not result:
-        return {}
-
-    posts = result.get("journalposts", [])
-    if not isinstance(posts, list):
-        return {}
-
+def journalpost_ids(result: Dict[str, Any]) -> set:
     return {
-        post.get("id"): post
-        for post in posts
-        if isinstance(post, dict) and post.get("id")
+        jp.get("id")
+        for jp in result.get("journalposts", [])
+        if jp.get("id")
     }
 
 
-def detect_basic_changes(previous: dict | None, current: dict) -> dict:
-    previous_posts = journalpost_map(previous)
-    current_posts = journalpost_map(current)
-
-    previous_ids = set(previous_posts)
-    current_ids = set(current_posts)
+def basic_change_summary(previous: Dict[str, Any], current: Dict[str, Any]) -> str:
+    previous_ids = journalpost_ids(previous)
+    current_ids = journalpost_ids(current)
 
     added_ids = sorted(current_ids - previous_ids)
     removed_ids = sorted(previous_ids - current_ids)
-    common_ids = sorted(previous_ids & current_ids)
 
-    modified_ids = []
-    for post_id in common_ids:
-        if previous_posts[post_id] != current_posts[post_id]:
-            modified_ids.append(post_id)
-
-    return {
-        "previous_journalpost_count": len(previous_posts),
-        "current_journalpost_count": len(current_posts),
-        "added_ids": added_ids,
-        "removed_ids": removed_ids,
-        "modified_ids": modified_ids,
-    }
-
-
-def make_llm_payload(previous: dict | None, current: dict, basic_changes: dict) -> dict:
-    """
-    Keep payload focused. The raw eInnsyn data can be large, so we send the relevant comparison structure.
-    """
-    previous_posts = journalpost_map(previous)
-    current_posts = journalpost_map(current)
-
-    added = [current_posts[x] for x in basic_changes["added_ids"]]
-    removed = [previous_posts[x] for x in basic_changes["removed_ids"]]
-
-    modified = []
-    for post_id in basic_changes["modified_ids"]:
-        modified.append(
-            {
-                "id": post_id,
-                "before": previous_posts.get(post_id),
-                "after": current_posts.get(post_id),
-            }
-        )
-
-    return {
-        "case_before": previous.get("case") if previous else None,
-        "case_after": current.get("case"),
-        "basic_changes": basic_changes,
-        "added_journalposts": added,
-        "removed_journalposts": removed,
-        "modified_journalposts": modified,
-    }
-
-
-def summarize_change_with_openai(previous: dict | None, current: dict, basic_changes: dict) -> str:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return (
-            "OpenAI summary was not generated because OPENAI_API_KEY is not set.\n\n"
-            + fallback_summary(basic_changes)
-        )
-
-    payload = make_llm_payload(previous, current, basic_changes)
-
-    prompt = f"""
-You are summarizing changes in a monitored Norwegian eInnsyn case for a compliance/legal recipient.
-
-Write a clear, factual email-ready summary in English.
-
-Context:
-- The monitored case is eInnsyn Saksmappe {CASE_NUMBER}.
-- Case ID: {KNOWN_CASE_ID}.
-- Administrative unit: RME-M - Seksjon for marked og systemdrift.
-- Some titles or parties may be shielded as "Avskjermet"; do not guess hidden content.
-- Do not invent legal conclusions.
-- Focus only on what changed between the previous JSON snapshot and the current JSON snapshot.
-
-Required structure:
-1. One-sentence headline.
-2. Short explanation of whether the journalpost count changed.
-3. Added journalposts, if any.
-4. Removed journalposts, if any.
-5. Modified journalposts, if any, explaining which fields changed in plain language.
-6. If only metadata changed, say that no new or removed journalpost IDs were detected.
-7. End with a short practical note on what the recipient may want to check.
-
-Data to compare:
-{json.dumps(payload, ensure_ascii=False, indent=2)}
-""".strip()
-
-    body = {
-        "model": OPENAI_MODEL,
-        "input": prompt,
-        "max_output_tokens": 1200,
-    }
-
-    response = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=body,
-        timeout=60,
-    )
-
-    if response.status_code >= 400:
-        return (
-            f"OpenAI summary was not generated. API returned {response.status_code}: "
-            f"{response.text[:1000]}\n\n"
-            + fallback_summary(basic_changes)
-        )
-
-    data = response.json()
-
-    # Responses API usually exposes a convenient output_text field in SDKs,
-    # but raw HTTP responses can contain nested output content.
-    text_parts = []
-
-    for output_item in data.get("output", []):
-        for content_item in output_item.get("content", []):
-            if content_item.get("type") in ("output_text", "text"):
-                text = content_item.get("text")
-                if text:
-                    text_parts.append(text)
-
-    summary = "\n".join(text_parts).strip()
-
-    if not summary:
-        return (
-            "OpenAI summary was not generated because no text was returned.\n\n"
-            + fallback_summary(basic_changes)
-        )
-
-    return summary
-
-
-def fallback_summary(basic_changes: dict) -> str:
     lines = [
         "The monitored eInnsyn result has changed.",
         "",
-        f"Previous journalpost count: {basic_changes['previous_journalpost_count']}",
-        f"Current journalpost count: {basic_changes['current_journalpost_count']}",
+        f"Case ID: {KNOWN_CASE_ID}",
+        f"Case number: {CASE_NUMBER}",
+        f"Previous journalpost count: {previous.get('total_journalposts')}",
+        f"Current journalpost count: {current.get('total_journalposts')}",
+        "",
     ]
 
-    if basic_changes["added_ids"]:
-        lines.append("")
+    if added_ids:
         lines.append("Added journalpost IDs:")
-        lines.extend(f"- {x}" for x in basic_changes["added_ids"])
-
-    if basic_changes["removed_ids"]:
+        lines.extend(f"- {x}" for x in added_ids)
         lines.append("")
+
+    if removed_ids:
         lines.append("Removed journalpost IDs:")
-        lines.extend(f"- {x}" for x in basic_changes["removed_ids"])
-
-    if basic_changes["modified_ids"]:
+        lines.extend(f"- {x}" for x in removed_ids)
         lines.append("")
-        lines.append("Modified journalpost IDs:")
-        lines.extend(f"- {x}" for x in basic_changes["modified_ids"])
 
-    if not basic_changes["added_ids"] and not basic_changes["removed_ids"]:
-        lines.append("")
+    if not added_ids and not removed_ids:
+        lines.append("No added or removed journalpost IDs were detected.")
         lines.append(
-            "No added or removed journalpost IDs were detected. "
             "The change is likely in metadata, titles, dates, shielding information, or raw fields."
         )
+        lines.append("")
 
     return "\n".join(lines)
+
+
+def make_llm_prompt(previous: Dict[str, Any], current: Dict[str, Any]) -> str:
+    previous_stable = stable_for_comparison(previous)
+    current_stable = stable_for_comparison(current)
+
+    return f"""
+You are helping monitor a Norwegian eInnsyn case.
+
+Task:
+Compare the previous JSON and current JSON.
+Write a clear email-ready explanation of what changed.
+
+Requirements:
+- Be specific.
+- Mention whether journalposts were added, removed, or only changed in metadata.
+- If counts are the same, explain that clearly.
+- Identify changed journalpost numbers, dates, titles, shielding fields, or other relevant fields if visible.
+- Do not invent facts.
+- If a field is unclear, say that it changed but cannot determine why.
+- Keep the tone professional and concise.
+- Output only the email body text. Do not use markdown tables.
+
+Context:
+Case ID: {KNOWN_CASE_ID}
+Case number: {CASE_NUMBER}
+Organisation/unit: RME-M - Seksjon for marked og systemdrift
+
+Previous JSON:
+{canonical_json(previous_stable)}
+
+Current JSON:
+{canonical_json(current_stable)}
+""".strip()
+
+
+def summarize_change_with_openai(previous: Dict[str, Any], current: Dict[str, Any]) -> str:
+    fallback = basic_change_summary(previous, current)
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return (
+            fallback
+            + "\nOpenAI summary was not generated because OPENAI_API_KEY is not set."
+        )
+
+    if OpenAI is None:
+        return (
+            fallback
+            + "\nOpenAI summary was not generated because the openai package is not installed."
+        )
+
+    try:
+        client = OpenAI(api_key=api_key)
+
+        response = client.responses.create(
+            model=OPENAI_MODEL,
+            input=make_llm_prompt(previous, current),
+        )
+
+        text = getattr(response, "output_text", None)
+        if text and text.strip():
+            return text.strip()
+
+        return fallback + "\nOpenAI returned no summary text."
+
+    except Exception as exc:
+        return fallback + f"\nOpenAI summary failed: {exc}"
+
+
+def split_recipients(raw: str) -> List[str]:
+    if not raw:
+        return []
+
+    cleaned = raw.replace(";", ",")
+    return [x.strip() for x in cleaned.split(",") if x.strip()]
 
 
 def send_email(subject: str, body: str) -> None:
     gmail_user = os.getenv("GMAIL_USER")
     gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
-    alert_to = os.getenv("ALERT_TO")
+    alert_to_raw = os.getenv("ALERT_TO", "")
 
-    if not gmail_user or not gmail_app_password or not alert_to:
-        log("Email not sent because GMAIL_USER, GMAIL_APP_PASSWORD, or ALERT_TO is missing.")
-        return
+    recipients = split_recipients(alert_to_raw)
 
-    recipients = [x.strip() for x in alert_to.split(",") if x.strip()]
+    if not gmail_user:
+        raise RuntimeError("GMAIL_USER is not set.")
+
+    if not gmail_app_password:
+        raise RuntimeError("GMAIL_APP_PASSWORD is not set.")
+
     if not recipients:
-        log("Email not sent because ALERT_TO does not contain valid recipients.")
-        return
+        raise RuntimeError("ALERT_TO is not set or contains no recipients.")
 
-    msg = EmailMessage()
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
     msg["From"] = gmail_user
     msg["To"] = ", ".join(recipients)
-    msg["Subject"] = subject
-    msg.set_content(body)
 
-    context = ssl.create_default_context()
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(gmail_user, gmail_app_password)
-        server.send_message(msg)
+        server.sendmail(gmail_user, recipients, msg.as_string())
 
-    log(f"Email sent to: {', '.join(recipients)}")
-
-
-def build_email_body(previous: dict | None, current: dict, basic_changes: dict, llm_summary: str) -> str:
-    case = current.get("case", {})
-    monitor = current.get("monitor", {})
-
-    body = f"""
-The monitored eInnsyn result has changed.
-
-Case ID: {monitor.get("case_id")}
-Case number: {monitor.get("case_number")}
-Administrative unit: RME-M - Seksjon for marked og systemdrift
-Checked at UTC: {monitor.get("checked_at_utc")}
-
-Previous journalpost count: {basic_changes["previous_journalpost_count"]}
-Current journalpost count: {basic_changes["current_journalpost_count"]}
-
-Summary of change:
-{llm_summary}
-
-Case link:
-{case.get("web_link")}
-
-API link:
-{case.get("api_link")}
-""".strip()
-
-    return body
+    print(f"Email sent to: {', '.join(recipients)}")
 
 
 def main() -> None:
-    try:
-        previous_result = load_previous_result()
-        current_result = build_result()
+    print("Building current eInnsyn result...")
+    current_result = build_result()
 
-        previous_comparable = comparable_result(previous_result) if previous_result else None
-        current_comparable = comparable_result(current_result)
+    previous_result = load_previous_result()
 
-        if previous_comparable is None:
-            log("No previous JSON found. Creating baseline only.")
-            save_current_result(current_result)
-            print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
-            return
+    if previous_result is None:
+        print("No previous JSON found. Creating baseline only.")
+        save_result(current_result)
+        print(canonical_json(current_result))
+        return
 
-        if previous_comparable == current_comparable:
-            log("No change detected.")
-            save_current_result(current_result)
-            print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
-            return
+    previous_stable = stable_for_comparison(previous_result)
+    current_stable = stable_for_comparison(current_result)
 
-        log("Change detected.")
+    if canonical_json(previous_stable) == canonical_json(current_stable):
+        print("No meaningful change detected. latest_result.json was not overwritten.")
+        return
 
-        basic_changes = detect_basic_changes(previous_result, current_result)
-        llm_summary = summarize_change_with_openai(previous_result, current_result, basic_changes)
+    print("Meaningful change detected.")
 
-        email_body = build_email_body(
-            previous=previous_result,
-            current=current_result,
-            basic_changes=basic_changes,
-            llm_summary=llm_summary,
-        )
+    summary = summarize_change_with_openai(previous_result, current_result)
 
-        send_email(
-            subject=f"eInnsyn change detected: {CASE_NUMBER}",
-            body=email_body,
-        )
+    subject = f"eInnsyn monitor changed: {CASE_NUMBER}"
+    send_email(subject, summary)
 
-        save_current_result(current_result)
-        print(json.dumps(current_result, ensure_ascii=False, indent=2, sort_keys=True))
+    save_result(current_result)
 
-    except Exception as exc:
-        log(f"ERROR: {exc}")
-        raise
+    print("latest_result.json updated.")
+    print("\nEMAIL SUMMARY")
+    print(summary)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise
