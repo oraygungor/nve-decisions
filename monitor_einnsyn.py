@@ -393,14 +393,22 @@ def make_llm_prompt(change_report: Dict[str, Any]) -> str:
     return f"""
 You are preparing an email alert for a monitored Norwegian eInnsyn case.
 
-The recipient does not need a technical JSON diff.
-The recipient needs to know whether there has been a material change.
+The email recipient does not need a technical JSON diff.
+The recipient needs a clear, practical explanation of what materially changed.
+
+Important:
+Do not only say that something changed.
+For every material change, explain:
+- what the item is,
+- what it was before,
+- what it is now,
+- why this matters, if the change is meaningful.
 
 Definition of material change:
 - A new journalpost/document was added.
 - A journalpost/document was removed.
 - The total number of journalposts changed.
-- A visible field changed in a way that affects the understanding of the case, such as title, journal date, document date, published date, document type, shielding/legal basis, or sender/recipient information.
+- A visible field changed in a way that affects the understanding of the case, such as title, journal date, document date, published date, document type, shielding/legal basis, sender/recipient information, or web link.
 
 Definition of non-material change:
 - Only technical metadata changed.
@@ -410,16 +418,56 @@ Definition of non-material change:
 
 Write the email body in clear plain English.
 
-Rules:
-- Start with one clear sentence saying whether a material change was detected.
-- If new journalposts were added, explain what was added.
-- If journalposts were removed, explain what was removed.
-- If visible fields changed, summarize only the meaningful visible changes.
-- Do not describe irrelevant technical JSON differences.
-- Do not mention unchanged fields.
-- Do not invent facts.
-- Keep it concise but useful.
-- Output only the email body text.
+Mandatory structure:
+
+1. Start with a one-sentence summary:
+   - say whether a material change was detected,
+   - say the case number,
+   - say the main reason.
+
+2. Then write a section called "What changed".
+
+3. For each added journalpost, write:
+   - "New journalpost added"
+   - journalpost number,
+   - title,
+   - journal date,
+   - document date,
+   - published date,
+   - document type,
+   - shielding/legal basis if available,
+   - link.
+
+4. For each removed journalpost, write:
+   - "Journalpost removed"
+   - the same available fields.
+
+5. For each changed existing journalpost, write the comparison explicitly in this format:
+   - Journalpost [number/title/id]
+   - Field changed: [field name]
+   - Before: [previous value]
+   - Now: [current value]
+
+6. If the only changes are shielding/legal-basis changes, say that clearly:
+   - "No new or removed journalposts were detected, but shielding/legal-basis information changed."
+
+7. If a field changed from missing/null/empty to a value, say:
+   - "Previously not shown"
+   - "Now shown as: [value]"
+
+8. If a field changed from a value to missing/null/empty, say:
+   - "Previously shown as: [value]"
+   - "Now not shown"
+
+9. Do not mention unchanged fields.
+
+10. Do not invent sender/recipient names, legal effects, document content, or regulatory consequences.
+
+11. Do not say "several" unless you then list each affected journalpost individually.
+
+12. Keep the email concise but specific enough that the recipient can understand what changed without opening the JSON.
+
+Output only the email body text.
 
 Case context:
 Case ID: {KNOWN_CASE_ID}
