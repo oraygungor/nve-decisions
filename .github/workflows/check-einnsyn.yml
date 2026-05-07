@@ -3,7 +3,7 @@ name: Monitor eInnsyn
 on:
   workflow_dispatch:
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "13,43 * * * *"
 
 permissions:
   contents: write
@@ -19,6 +19,14 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
+      - name: Show workflow trigger context
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "Scheduled cron: ${{ github.event.schedule }}"
+          date -u
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -27,14 +35,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests openai
+          pip install -r requirements.txt
 
       - name: Run eInnsyn monitor
         env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
-
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: gpt-5.4-mini
         run: |
